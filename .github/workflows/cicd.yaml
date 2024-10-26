@@ -1,0 +1,45 @@
+name: Build and Deploy to Cloud Run Job
+
+on:
+  push:
+    branches: ["main"]
+
+env:
+  PROJECT_ID: kalygo-436411 # Google Cloud project id
+  PROJECT_NUMBER: 830723611668 # Google Cloud project number
+  JOB_NAME: my-job # Cloud Run Job name
+  JOB_REGION: us-east1 # Cloud Run region
+  
+  ARTIFACTORY_URL: us-east1-docker.pkg.dev/kalygo-436411/job-2-repo/job-2-repo
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Google Cloud Auth
+        uses: "google-github-actions/auth@v2"
+        with:
+          credentials_json: "${{ secrets.GCP_SA_KEY }}"
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker us-east1-docker.pkg.dev
+
+      - name: Build and Push Container
+        run: |-
+          docker build -f Dockerfile -t "${{ env.ARTIFACTORY_URL }}:${{ github.sha }}" ./
+          docker push "${{ env.ARTIFACTORY_URL }}:${{ github.sha }}"
+
+      - name: Deploy to Cloud Run Job
+        run: |
+          gcloud run jobs deploy my-job \
+          --image us-east1-docker.pkg.dev/$PROJECT_ID/job-2-repo/job-2-repo:${{ github.sha }} \
+          --set-secrets "OPENAI_API_KEY=projects/$PROJECT_NUMBER/secrets/HAITI_NEWS_OPENAI_API_KEY:latest,AWS_SECRET_KEY=projects/$PROJECT_NUMBER/secrets/HAITI_NEWS_AWS_SECRET_KEY:latest,AWS_ACCESS_KEY_ID=projects/$PROJECT_NUMBER/secrets/HAITI_NEWS_AWS_ACCESS_KEY_ID:latest,AWS_REGION=projects/$PROJECT_NUMBER/secrets/HAITI_NEWS_AWS_REGION:latest,AGENTOPS_API_KEY=projects/830723611668/secrets/HAITI_NEWS_AGENTOPS_API_KEY:latest" \
+          --env-vars-file env-vars.yaml \
+          --region us-east1 \
+          --project $PROJECT_ID
